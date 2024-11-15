@@ -127,7 +127,7 @@
         async function loadCoordinates() {
             try {
                 // Spielplätze laden
-                const playgroundsResponse = await fetch('Spielplätze_HH.csv');
+                const playgroundsResponse = await fetch('https://<jrosejastr>.github.io/<Klo>/Spielplätze_HH.csv');
                 const playgroundsData = await playgroundsResponse.text();
                 
                 playgroundsData.split('\n').slice(1).forEach(line => {
@@ -141,7 +141,7 @@
                 });
 
                 // Toiletten laden
-                const toiletsResponse = await fetch('Toiletten_HH.csv');
+                const toiletsResponse = await fetch('https://<jrosejastr>.github.io/<Klo>/Toiletten_HH.csv');
                 const toiletsData = await toiletsResponse.text();
                 
                 toiletsData.split('\n').slice(1).forEach(line => {
