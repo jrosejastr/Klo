@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spielplätze und Toiletten in Hamburg</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <style>
+        body { 
+            margin: 0; 
+            padding: 20px; 
+            font-family: Arial, sans-serif;
+        }
+        #map { 
+            height: 600px; 
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .location-list {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
+        .location-item {
+            margin: 10px 0;
+            padding: 15px;
+            background: #f8f8f8;
+            border-radius: 6px;
+            border-left: 4px solid #4a90e2;
+        }
+        .distance {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .toggle-button {
+            padding: 8px 16px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            background: #4a90e2;
+            color: white;
+            cursor: pointer;
+        }
+        .toggle-button:hover {
+            background: #357abd;
+        }
+        .filter-container {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f8f8;
+            border-radius: 6px;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        input[type="range"] {
+            flex-grow: 1;
+        }
+        .playground-marker, .toilet-marker {
+            font-size: 32px !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: none !important;
+            border: none;
+            box-shadow: none;
+        }
+        .user-marker {
+            font-size: 36px !important;
+        }
+    </style>
+</head>
+<body>
+    <h1>Spielplätze und Toiletten in Hamburg</h1>
+    
+    <div id="status" class="loading">
+        Standort wird ermittelt...
+    </div>
+
+    <div>
+        <button class="toggle-button" onclick="toggleMarkers('playgrounds')">Spielplätze</button>
+        <button class="toggle-button" onclick="toggleMarkers('toilets')">Toiletten</button>
+    </div>
+
+    <div class="filter-container">
+        <h3>Maximale Distanz zwischen Spielplatz und Toilette: <span id="distanceValue">500</span>m</h3>
+        <div class="slider-container">
+            <input type="range" id="distanceSlider" min="100" max="1000" step="100" value="500">
+        </div>
+    </div>
+    
+    <div id="map"></div>
+    
+    <div class="location-list">
+        <h2>Nächstgelegene Orte</h2>
+        <div id="locations"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script>
+        // Globale Variablen
+        let map;
+        let userMarker;
+        let markers = {
+            playgrounds: new Map(),
+            toilets: new Map()
+        };
+        let visibleLayers = {
+            playgrounds: true,
+            toilets: true
+        };
+        let coordinates = {
+            playgrounds: new Map(),
+            toilets: new Map()
+        };
+        let distanceMatrix = {};
+        let maxDistance = 500;
+
+        // Koordinaten laden
+        async function loadCoordinates() {
+            try {
+                // Spielplätze laden
+                const playgroundsResponse = await fetch('Spielplätze_HH.csv');
+                const playgroundsData = await playgroundsResponse.text();
+                
+                playgroundsData.split('\n').slice(1).forEach(line => {
+                    const [id, lat, lng] = line.split(';');
+                    if (id && lat && lng) {
+                        coordinates.playgrounds.set(id, {
+                            lat: parseFloat(lat.replace(',', '.')),
+                            lng: parseFloat(lng.replace(',', '.'))
+                        });
+                    }
+                });
+
+                // Toiletten laden
+                const toiletsResponse = await fetch('Toiletten_HH.csv');
+                const toiletsData = await toiletsResponse.text();
+                
+                toiletsData.split('\n').slice(1).forEach(line => {
+                    const [id, lat, lng] = line.split(';');
+                    if (id && lat && lng) {
+                        coordinates.toilets.set(id, {
+                            lat: parseFloat(lat.replace(',', '.')),
+                            lng: parseFloat(lng.replace(',', '.'))
+                        });
+                    }
+                });
+
+                console.log('Coordinates loaded');
+                initMarkers();
+            } catch (error) {
+                console.error('Fehler beim Laden der Koordinaten:', error);
+                document.getElementById('status').textContent = 'Fehler beim Laden der Koordinaten';
+            }
+        }
+
+        // Distanzmatrix laden
+        async function loadDistanceMatrix() {
+            try {
+                const response = await fetch('Distanzmatrix_Toiletten_Spielplaetze.csv');
+                const data = await response.text();
+                
+                const rows = data.split('\n');
+                const headers = rows[0].split(',');
+                
+                for (let i = 1; i < rows.length; i++) {
+                    const values = rows[i].split(',');
+                    const sourceId = values[0];
+                    distanceMatrix[sourceId] = {};
+                    
+                    for (let j = 1; j < values.length; j++) {
+                        const targetId = headers[j];
+                        const distance = parseFloat(values[j]);
+                        if (!isNaN(distance)) {
+                            distanceMatrix[sourceId][targetId] = distance;
+                        }
+                    }
+                }
+                console.log('Distance matrix loaded');
+            } catch (error) {
+                console.error('Fehler beim Laden der Distanzmatrix:', error);
+            }
+        }
+
+        // Karte initialisieren
+        function initMap() {
+            map = L.map('map').setView([53.551086, 9.993682], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+        }
+
+        // Marker initialisieren
+        function initMarkers() {
+            // Spielplätze
+            coordinates.playgrounds.forEach((coord, id) => {
+                const marker = L.marker([coord.lat, coord.lng], {
+                    icon: L.divIcon({
+                        html: '🎮',
+                        className: 'playground-marker',
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 16]
+                    })
+                });
+                markers.playgrounds.set(id, marker);
+            });
+
+            // Toiletten
+            coordinates.toilets.forEach((coord, id) => {
+                const marker = L.marker([coord.lat, coord.lng], {
+                    icon: L.divIcon({
+                        html: '🚽',
+                        className: 'toilet-marker',
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 16]
+                    })
+                });
+                markers.toilets.set(id, marker);
+                marker.addTo(map);
+            });
+
+            updateVisibleMarkers();
+        }
+
+        // Marker ein-/ausblenden
+        function toggleMarkers(type) {
+            visibleLayers[type] = !visibleLayers[type];
+            if (type === 'playgrounds') {
+                updateVisibleMarkers();
+            } else {
+                markers[type].forEach(marker => {
+                    if (visibleLayers[type]) {
+                        marker.addTo(map);
+                    } else {
+                        marker.remove();
+                    }
+                });
+            }
+        }
+
+        // Standort ermitteln
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(showPosition, showError);
+            } else {
+                document.getElementById('status').textContent = 
+                    'Geolocation wird von diesem Browser nicht unterstützt';
+            }
+        }
+
+        function showPosition(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            
+            document.getElementById('status').textContent = 
+                `Standort gefunden: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            
+            updateMap(lat, lng);
+            findNearestLocations(lat, lng);
+        }
+
+        function showError(error) {
+            let errorMessage = 'Fehler bei der Standortermittlung: ';
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    errorMessage += 'Zugriff auf Standort verweigert.';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    errorMessage += 'Standortinformationen nicht verfügbar.';
+                    break;
+                case error.TIMEOUT:
+                    errorMessage += 'Zeitüberschreitung bei der Standortabfrage.';
+                    break;
+                case error.UNKNOWN_ERROR:
+                    errorMessage += 'Unbekannter Fehler aufgetreten.';
+                    break;
+            }
+            document.getElementById('status').textContent = errorMessage;
+        }
+
+        function updateMap(lat, lng) {
+            if (userMarker) {
+                map.removeLayer(userMarker);
+            }
+            
+            userMarker = L.marker([lat, lng], {
+                icon: L.divIcon({
+                    html: '📍',
+                    className: 'user-marker',
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 32]
+                })
+            }).addTo(map);
+            map.setView([lat, lng], 15);
+        }
+
+        // Nächstgelegene Locations finden
+        function findNearestLocations(lat, lng) {
+            const userPoint = L.latLng(lat, lng);
+            let locations = [];
+
+            // Spielplätze
+            coordinates.playgrounds.forEach((coord, id) => {
+                const distance = userPoint.distanceTo(L.latLng(coord.lat, coord.lng));
+                locations.push({
+                    id,
+                    type: 'playground',
+                    distance,
+                    coord
+                });
+            });
+
+            // Toiletten
+            coordinates.toilets.forEach((coord, id) => {
+                const distance = userPoint.distanceTo(L.latLng(coord.lat, coord.lng));
+                locations.push({
+                    id,
+                    type: 'toilet',
+                    distance,
+                    coord
+                });
+            });
+
+            // Sortieren nach Distanz
+            locations.sort((a, b) => a.distance - b.distance);
+
+            // Erste 10 anzeigen
+            const locationsDiv = document.getElementById('locations');
+            locationsDiv.innerHTML = locations.slice(0, 10).map(loc => `
+                <div class="location-item">
+                    <strong>${loc.type === 'playground' ? '🎮 Spielplatz' : '🚽 Toilette'}</strong><br>
+                    <span class="distance">${(loc.distance / 1000).toFixed(2)}km entfernt</span>
+                </div>
+            `).join('');
+        }
+
+        // Marker basierend auf Distanz aktualisieren
+        function updateVisibleMarkers() {
+            markers.playgrounds.forEach((markerP, idP) => {
+                let coordP = coordinates.playgrounds.get(idP);
+                let hasNearbyToilet = false;
+
+                coordinates.toilets.forEach((coordT) => {
+                    let distance = L.latLng(coordP.lat, coordP.lng)
+                        .distanceTo(L.latLng(coordT.lat, coordT.lng));
+                    if (distance <= maxDistance) {
+                        hasNearbyToilet = true;
+                    }
+                });
+
+                if (hasNearbyToilet && visibleLayers.playgrounds) {
+                    markerP.addTo(map);
+                } else {
+                    markerP.remove();
+                }
+            });
+        }
+
+        // Event Listener für Slider
+        document.getElementById('distanceSlider').addEventListener('input', function(e) {
+            maxDistance = parseInt(e.target.value);
+            document.getElementById('distanceValue').textContent = maxDistance;
+            updateVisibleMarkers();
+        });
+
+        // Initialisierung
+        window.onload = async function() {
+            initMap();
+            await Promise.all([
+                loadCoordinates(),
+                loadDistanceMatrix()
+            ]);
+            getLocation();
+        };
+    </script>
+</body>
+</html>
