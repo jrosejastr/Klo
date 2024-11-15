@@ -127,7 +127,7 @@
         async function loadCoordinates() {
             try {
                 // Spielplätze laden
-                const playgroundsResponse = await fetch('Spielplätze_HH.csv');
+                const playgroundsResponse = await fetch('https://github.com/jrosejastr/Klo/edit/main/Spielplätze_HH.csv');
                 const playgroundsData = await playgroundsResponse.text();
                 
                 playgroundsData.split('\n').slice(1).forEach(line => {
