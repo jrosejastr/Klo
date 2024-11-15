@@ -127,7 +127,7 @@
         async function loadCoordinates() {
             try {
                 // Spielplätze laden
-                const playgroundsResponse = await fetch('https://github.com/jrosejastr/Klo/edit/main/Spielplätze_HH.csv');
+                const playgroundsResponse = await fetch('https://raw.githubusercontent.com/jrosejastr/Klo/refs/heads/main/Spielplätze_HH.csv');
                 const playgroundsData = await playgroundsResponse.text();
                 
                 playgroundsData.split('\n').slice(1).forEach(line => {
@@ -141,7 +141,7 @@
                 });
 
                 // Toiletten laden
-                const toiletsResponse = await fetch('https://github.com/jrosejastr/Klo/edit/main/Toiletten_HH.csv');
+                const toiletsResponse = await fetch('https://raw.githubusercontent.com/jrosejastr/Klo/refs/heads/main/Toiletten_HH.csv');
                 const toiletsData = await toiletsResponse.text();
                 
                 toiletsData.split('\n').slice(1).forEach(line => {
@@ -165,7 +165,7 @@
         // Distanzmatrix laden
         async function loadDistanceMatrix() {
             try {
-                const response = await fetch('https://github.com/jrosejastr/Klo/edit/main/Distanzmatrix_Toiletten_Spielplaetze.csv');
+                const response = await fetch('https://raw.githubusercontent.com/jrosejastr/Klo/refs/heads/main/Distanzmatrix_Toiletten_Spielplaetze.csv');
                 const data = await response.text();
                 
                 const rows = data.split('\n');
